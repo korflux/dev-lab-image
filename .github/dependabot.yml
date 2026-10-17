@@ -1,0 +1,15 @@
+# ── Dependabot ───────────────────────────────────────────────────────────
+# Abre PRs semanais para atualizar as versões fixadas:
+#   - docker: tag + digest da imagem base no Dockerfile.
+#   - github-actions: SHAs das Actions em .github/workflows.
+version: 2
+updates:
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
