@@ -1,0 +1,81 @@
+# ── dev-lab: code-server + Docker isolado (DinD) ─────────────────────────
+# Compose do serviço no Easypanel (VPS Hostinger). Copiar este conteúdo
+# para o serviço Compose no painel e fazer Deploy.
+#
+# editor: ambiente de desenvolvimento. Fala com o daemon do DinD por TCP+TLS
+#         e não tem acesso ao Docker do host (nem aos outros projetos).
+# dind:   daemon Docker próprio, com containers, imagens e volumes separados.
+#         Roda privilegiado: isola de acidentes, não é barreira de segurança.
+#
+# Variáveis definidas no painel (nunca neste arquivo): CODE_PASSWORD, SUDO_PASSWORD.
+services:
+
+  # ── Editor (code-server) ───────────────────────────────────────────────
+  editor:
+    image: ghcr.io/korflux/dev-lab-image:latest
+    # Sempre baixa a latest no deploy; sem isso o Easypanel reaproveita a
+    # imagem em cache e as atualizações do repo não chegam ao editor.
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: America/Sao_Paulo
+      PASSWORD: ${CODE_PASSWORD}
+      SUDO_PASSWORD: ${SUDO_PASSWORD}
+      DEFAULT_WORKSPACE: /config/workspace
+      # Aponta o Docker CLI para o daemon isolado, com TLS mútuo.
+      DOCKER_HOST: tcp://dind:2376
+      DOCKER_TLS_VERIFY: "1"
+      DOCKER_CERT_PATH: /certs/client
+    volumes:
+      - editor_data:/config            # mesmo nome de antes: preserva os dados
+      - dind_certs_client:/certs/client:ro
+    expose:
+      - "8443"
+    shm_size: "1gb"
+    networks:
+      - default
+      - dind
+    depends_on:
+      dind:
+        condition: service_healthy     # espera os certificados existirem
+
+  # ── Daemon Docker isolado ──────────────────────────────────────────────
+  dind:
+    image: docker:29.9.1-dind
+    restart: unless-stopped
+    privileged: true                   # exigido pelo DinD
+    environment:
+      # Gera CA, certificado do servidor e do cliente em /certs.
+      # Sem TLS, a porta 2375 ficaria aberta sem senha na rede, e quem
+      # alcançasse ela teria root no host.
+      DOCKER_TLS_CERTDIR: /certs
+      # Inclui o nome do serviço no certificado do servidor. Por padrão ele só
+      # cobre hostname do container, "docker" e "localhost", e o editor
+      # conecta em tcp://dind:2376.
+      DOCKER_TLS_SAN: DNS:dind
+    volumes:
+      - dind_data:/var/lib/docker      # imagens, containers e volumes do DinD
+      - dind_certs_client:/certs/client
+    networks:
+      - dind
+    # Limites para um build pesado não derrubar os outros projetos do VPS.
+    # ponytail: limites fixos (2 CPU / 6 GB), revisar se o VPS mudar de tamanho
+    cpus: "2"
+    mem_limit: 6g
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+# ── Rede privada editor <-> dind ─────────────────────────────────────────
+networks:
+  dind:
+
+volumes:
+  editor_data:
+  dind_data:
+  dind_certs_client:
